@@ -24,6 +24,18 @@ label{display:block;font-size:.9rem;font-weight:650;margin:0 0 5px}input,select,
 <header><div class="brandhead"><img id="headerPhoto" class="profile-pic" alt="Your profile photo"><div class="brandcopy"><h1>Deutsch B2 Beruf</h1><p>Your personal German vocabulary trainer · works locally in this browser</p><div class="credit">Created by <strong id="headerCreator">Sachin Laad</strong></div></div></div></header>
 <main>
   
+<section class="panel" id="learningProgressPanel">
+  <h2>My Learning Progress</h2>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <span id="progressCount">0 of 0 words mastered</span>
+    <strong id="progressPercent">0%</strong>
+  </div>
+  <div style="background:var(--border-color, #ddd);height:12px;border-radius:99px;overflow:hidden;margin-top:10px">
+    <div id="progressBar" style="height:100%;width:0%;background:#16a34a;border-radius:99px;transition:width .3s"></div>
+  </div>
+</section>
+
+  
 <section class="panel" id="authPanel" style="margin-bottom:18px">
   <h2>Account & Cloud Sync</h2>
   <p class="muted small">
@@ -212,15 +224,55 @@ function reconcileOrders(){
 }
 function loadWords(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]')}catch(e){return []}}
 
+function updateLearningProgress() {
+  const total = words.length;
+  const learned = words.filter(word => word.learned).length;
+  const percent = total ? Math.round((learned / total) * 100) : 0;
+
+  document.getElementById('progressCount').textContent =
+    `${learned} of ${total} words mastered`;
+
+  document.getElementById('progressPercent').textContent =
+    `${percent}%`;
+
+  document.getElementById('progressBar').style.width =
+    `${percent}%`;
+}
+
+
+function updateLearningProgress() {
+  const total = words.length;
+  const learned = words.filter(word => word.learned).length;
+  const percent = total > 0 ? Math.round((learned / total) * 100) : 0;
+
+  const countElement = document.getElementById('progressCount');
+  const percentElement = document.getElementById('progressPercent');
+  const barElement = document.getElementById('progressBar');
+
+  if (countElement) {
+    countElement.textContent = `${learned} of ${total} words mastered`;
+  }
+
+  if (percentElement) {
+    percentElement.textContent = `${percent}%`;
+  }
+
+  if (barElement) {
+    barElement.style.width = `${percent}%`;
+  }
+}
+
 function saveWords() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
   reconcileOrders();
   renderAll();
-  
+  updateLearningProgress();
+
   if (cloudReady && currentUser) {
     scheduleCloudSync();
   }
 }
+
 
 function uid(){return 'v_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7)}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -628,6 +680,7 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
 
 (async function initialiseCloudAuth() {
   updateAuthPanel();
+  updateLearningProgress();
 
   const { data, error } = await supabaseClient.auth.getSession();
 
