@@ -1,8 +1,8 @@
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Deutsch B2 Beruf – Vocabulary Trainer</title>
@@ -23,6 +23,46 @@ label{display:block;font-size:.9rem;font-weight:650;margin:0 0 5px}input,select,
 <body>
 <header><div class="brandhead"><img id="headerPhoto" class="profile-pic" alt="Your profile photo"><div class="brandcopy"><h1>Deutsch B2 Beruf</h1><p>Your personal German vocabulary trainer · works locally in this browser</p><div class="credit">Created by <strong id="headerCreator">Sachin Laad</strong></div></div></div></header>
 <main>
+  
+<section class="panel" id="authPanel" style="margin-bottom:18px">
+  <h2>Account & Cloud Sync</h2>
+  <p class="muted small">
+    Log in to save your learning progress online. Each account has separate progress.
+  </p>
+
+  <div id="authLoggedOut">
+    <div class="formgrid">
+      <div class="field">
+        <label for="authEmail">Email</label>
+        <input id="authEmail" type="email" autocomplete="email"
+               placeholder="you@example.com">
+      </div>
+      <div class="field">
+        <label for="authPassword">Password</label>
+        <input id="authPassword" type="password"
+               autocomplete="current-password"
+               placeholder="At least 6 characters">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" type="button" id="signInBtn">Log in</button>
+      <button type="button" id="signUpBtn">Create account</button>
+    </div>
+  </div>
+
+  <div id="authLoggedIn" class="hidden">
+    <p>Logged in as <strong id="authUserEmail"></strong></p>
+    <div class="actions">
+      <button class="secondary" type="button" id="syncProgressBtn">
+        Sync progress now
+      </button>
+      <button type="button" id="signOutBtn">Log out</button>
+    </div>
+  </div>
+
+  <p id="authStatus" class="small" aria-live="polite"></p>
+</section>
   <section class="stats">
     <div class="stat"><strong id="totalStat">0</strong><span>Vocabulary words</span></div>
     <div class="stat"><strong id="learnedStat">0</strong><span>Marked learned</span></div>
@@ -138,8 +178,24 @@ label{display:block;font-size:.9rem;font-weight:650;margin:0 0 5px}input,select,
   </section>
 </main>
 <script>
-const STORAGE_KEY='deutschB2BerufWords_v1';
-const DECK_ORDER_KEY='deutschB2BerufDeckOrder_v2';
+
+const STORAGE_KEY = 'deutschB2BerufWords_v1';
+const DECK_ORDER_KEY = 'deutschB2BerufDeckOrder_v2';
+
+const SUPABASE_URL = 'PASTE_YOUR_PROJECT_URL_HERE';
+const SUPABASE_PUBLISHABLE_KEY = 'PASTE_YOUR_PUBLISHABLE_KEY_HERE';
+
+const supabaseClient = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY
+);
+
+let currentUser = null;
+let cloudReady = false;
+let cloudSyncTimer = null;
+let cloudSyncRunning = false;
+let cloudSyncPending = false;
+
 let words=loadWords(), flashIndex=0, flashDeckIndex=0, flashRevealed=false, quizCurrent=null, quizAnswered=false, quizCorrect=0, quizAnsweredCount=0;
 let deckOrder=loadDeckOrder(), listOrder=[];
 function shuffleArray(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
@@ -155,7 +211,17 @@ function reconcileOrders(){
  listOrder.push(...shuffleArray(newListIds));
 }
 function loadWords(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]')}catch(e){return []}}
-function saveWords(){localStorage.setItem(STORAGE_KEY,JSON.stringify(words));reconcileOrders();renderAll()}
+
+function saveWords() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
+  reconcileOrders();
+  renderAll();
+
+  if (cloudReady && currentUser) {
+    scheduleCloudSync();
+  }
+}
+
 function uid(){return 'v_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7)}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 const PROFILE_KEY='deutschB2BerufProfile_v1';
@@ -286,8 +352,29 @@ document.getElementById('revealBtn').onclick=()=>{flashRevealed=!flashRevealed;r
 document.getElementById('prevCard').onclick=()=>{if(flashIndex>0){flashIndex--;flashRevealed=false;renderFlash()}};
 document.getElementById('nextCard').onclick=()=>{const d=getFlashDecks()[flashDeckIndex]||[];if(flashIndex<d.length-1){flashIndex++;flashRevealed=false;renderFlash()}};
 document.getElementById('deckSelect').onchange=()=>{flashDeckIndex=Number(document.getElementById('deckSelect').value)||0;flashIndex=0;flashRevealed=false;renderFlash()};
-document.getElementById('nextDeck').onclick=()=>{const d=getFlashDecks();if(flashDeckIndex<d.length-1){flashDeckIndex++;flashIndex=0;flashRevealed=false;renderFlash()}};
-document.getElementById('markDifficult').onclick=()=>{const w=getSet(document.getElementById('flashMode').value)[flashIndex];if(w){w.difficult=true;w.learned=false;saveWords()}};
+
+document.getElementById('markDifficult').onclick = () => {
+  const deck = getFlashDecks()[flashDeckIndex] || [];
+  const word = deck[flashIndex];
+
+  if (word) {
+    word.difficult = true;
+    word.learned = false;
+    saveWords();
+  }
+};
+
+document.getElementById('markLearned').onclick = () => {
+  const deck = getFlashDecks()[flashDeckIndex] || [];
+  const word = deck[flashIndex];
+
+  if (word) {
+    word.learned = true;
+    word.difficult = false;
+    saveWords();
+  }
+};
+
 document.getElementById('markLearned').onclick=()=>{const w=getSet(document.getElementById('flashMode').value)[flashIndex];if(w){w.learned=true;w.difficult=false;saveWords()}};
 document.getElementById('quizMode').onchange=startQuiz;
 function startQuiz(){quizAnswered=false;const set=getSet(document.getElementById('quizMode').value);if(set.length<4){document.getElementById('quizQuestion').textContent=`You need at least 4 words in this set. Currently: ${set.length}.`;document.getElementById('quizOptions').innerHTML='';document.getElementById('quizFeedback').textContent='';return}quizCurrent=set[Math.floor(Math.random()*set.length)];const wrong=set.filter(w=>w.id!==quizCurrent.id).sort(()=>Math.random()-.5).slice(0,3);const opts=[quizCurrent,...wrong].sort(()=>Math.random()-.5);document.getElementById('quizQuestion').textContent=quizCurrent.german;document.getElementById('quizOptions').innerHTML=opts.map(w=>`<button data-id="${esc(w.id)}">${esc(w.english)}</button>`).join('');document.getElementById('quizFeedback').textContent='';document.getElementById('score').textContent=`${quizCorrect} correct / ${quizAnsweredCount} answered`;document.getElementById('quizOptions').querySelectorAll('button').forEach(b=>b.onclick=()=>answerQuiz(b.dataset.id))}
@@ -345,9 +432,214 @@ document.getElementById('demoBtn').onclick=()=>{
  ];
  let n=0;for(const s of sample){if(!words.some(w=>w.german.toLowerCase()===s.german.toLowerCase())){words.push({...s,id:uid(),pronunciation:'',bookmarked:false,difficult:false,learned:false,createdAt:new Date().toISOString()});n++}}saveWords();alert(`${n} sample words added.`);
 };
-reconcileOrders();
-renderAll();
-renderProfile();
+
+function setAuthStatus(message) {
+  document.getElementById('authStatus').textContent = message;
+}
+
+function updateAuthPanel() {
+  const loggedIn = !!currentUser;
+  document.getElementById('authLoggedOut').classList.toggle('hidden', loggedIn);
+  document.getElementById('authLoggedIn').classList.toggle('hidden', !loggedIn);
+  document.getElementById('authUserEmail').textContent = currentUser?.email || '';
+}
+
+function progressKey(word) {
+  return String(word.german || '').trim().toLocaleLowerCase('de-DE');
+}
+
+function getProgressRow(word) {
+  return {
+    user_id: currentUser.id,
+    word_id: progressKey(word),
+    learned: !!word.learned,
+    bookmarked: !!word.bookmarked,
+    difficult: !!word.difficult,
+    updated_at: new Date().toISOString()
+  };
+}
+
+async function syncProgressNow() {
+  if (!currentUser) {
+    setAuthStatus('Please log in first.');
+    return;
+  }
+
+  if (cloudSyncRunning) {
+    cloudSyncPending = true;
+    return;
+  }
+
+  cloudSyncRunning = true;
+  cloudReady = false;
+
+  try {
+    setAuthStatus('Syncing progress…');
+
+    const { data, error } = await supabaseClient
+      .from('vocabulary_progress')
+      .select('word_id, learned, bookmarked, difficult')
+      .eq('user_id', currentUser.id);
+
+    if (error) throw error;
+
+    const cloudByKey = new Map(
+      (data || []).map(row => [row.word_id, row])
+    );
+
+    for (const word of words) {
+      const cloud = cloudByKey.get(progressKey(word));
+      if (cloud) {
+        word.learned = !!cloud.learned;
+        word.bookmarked = !!cloud.bookmarked;
+        word.difficult = !!cloud.difficult;
+      }
+    }
+
+    const newRows = words
+      .filter(word => !cloudByKey.has(progressKey(word)))
+      .map(getProgressRow);
+
+    if (newRows.length) {
+      const { error: uploadError } = await supabaseClient
+        .from('vocabulary_progress')
+        .upsert(newRows, { onConflict: 'user_id,word_id' });
+
+      if (uploadError) throw uploadError;
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
+    renderAll();
+    cloudReady = true;
+    setAuthStatus('Progress synced successfully.');
+  } catch (error) {
+    cloudReady = false;
+    setAuthStatus('Sync failed: ' + error.message);
+  } finally {
+    cloudSyncRunning = false;
+
+    if (cloudSyncPending) {
+      cloudSyncPending = false;
+      scheduleCloudSync();
+    }
+  }
+}
+
+function scheduleCloudSync() {
+  if (!currentUser || !cloudReady) return;
+  clearTimeout(cloudSyncTimer);
+
+  cloudSyncTimer = setTimeout(async () => {
+    try {
+      const rows = words.map(getProgressRow);
+      if (!rows.length) return;
+
+      const { error } = await supabaseClient
+        .from('vocabulary_progress')
+        .upsert(rows, { onConflict: 'user_id,word_id' });
+
+      if (error) throw error;
+      setAuthStatus('Your progress is saved to the cloud.');
+    } catch (error) {
+      setAuthStatus('Cloud save failed: ' + error.message);
+    }
+  }, 800);
+}
+
+async function handleSignedIn(user) {
+  currentUser = user;
+  cloudReady = false;
+  updateAuthPanel();
+  await syncProgressNow();
+}
+
+document.getElementById('signUpBtn').addEventListener('click', async () => {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+
+  if (!email || !password) {
+    setAuthStatus('Enter your email and password.');
+    return;
+  }
+
+  if (password.length < 6) {
+    setAuthStatus('Password must contain at least 6 characters.');
+    return;
+  }
+
+  setAuthStatus('Creating account…');
+
+  const { data, error } = await supabaseClient.auth.signUp({
+    email,
+    password
+  });
+
+  if (error) {
+    setAuthStatus('Sign-up failed: ' + error.message);
+  } else if (data.session && data.user) {
+    await handleSignedIn(data.user);
+  } else {
+    setAuthStatus('Account created. Check your email for confirmation, then log in.');
+  }
+});
+
+document.getElementById('signInBtn').addEventListener('click', async () => {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+
+  if (!email || !password) {
+    setAuthStatus('Enter your email and password.');
+    return;
+  }
+
+  setAuthStatus('Logging in…');
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (error) {
+    setAuthStatus('Login failed: ' + error.message);
+  } else {
+    await handleSignedIn(data.user);
+  }
+});
+
+document.getElementById('signOutBtn').addEventListener('click', async () => {
+  cloudReady = false;
+  const { error } = await supabaseClient.auth.signOut();
+  currentUser = null;
+  updateAuthPanel();
+  setAuthStatus(error ? 'Logout failed: ' + error.message : 'Logged out.');
+});
+
+document.getElementById('syncProgressBtn').addEventListener('click', syncProgressNow);
+
+supabaseClient.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT') {
+    currentUser = null;
+    cloudReady = false;
+    updateAuthPanel();
+  } else if (session?.user && !currentUser) {
+    setTimeout(() => handleSignedIn(session.user), 0);
+  }
+});
+
+(async function initialiseCloudAuth() {
+  updateAuthPanel();
+
+  const { data, error } = await supabaseClient.auth.getSession();
+
+  if (error) {
+    setAuthStatus('Could not check login: ' + error.message);
+  } else if (data.session?.user) {
+    await handleSignedIn(data.session.user);
+  } else {
+    setAuthStatus('Log in to sync your progress.');
+  }
+})();
+
 </script>
 </body>
 </html>
