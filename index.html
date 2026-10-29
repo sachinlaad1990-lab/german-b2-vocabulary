@@ -216,7 +216,7 @@ function saveWords() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
   reconcileOrders();
   renderAll();
-
+  
   if (cloudReady && currentUser) {
     scheduleCloudSync();
   }
